@@ -32,6 +32,7 @@ CREATE TABLE "BookInventory".books (
 	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
 	series_name varchar(255) NULL,
 	series_emoji text NULL,
+	description varchar(250) NULL,
 	CONSTRAINT books_author_not_null NOT NULL author,
 	CONSTRAINT books_book_id_not_null NOT NULL book_id,
 	CONSTRAINT books_book_name_not_null NOT NULL book_name,
