@@ -83,25 +83,27 @@ pip install openpyxl
 | `DB_PORT` | `5432` | PostgreSQL server port |
 | `DB_NAME` | `postgres` | Database name |
 | `DB_USER` | `postgres` | Database user |
-| `DB_PASSWORD` | Not set | Password; preferred variable name |
+| `DB_PASSWORD` | Not set | Password; preferred environment variable |
 | `PGPASSWORD` | Not set | Password fallback if `DB_PASSWORD` is unset |
 | `DB_SCHEMA` | `BookInventory` | PostgreSQL schema used by the app |
 
-Set the connection settings in the environment where Streamlit will be started.
-For example, in macOS/Linux:
+For local development, you can store the password in Streamlit's
+`.streamlit/secrets.toml` file at the project root so you do not need to export
+it every time:
 
 ```bash
-export DB_HOST=localhost
-export DB_PORT=5432
-export DB_NAME=postgres
-export DB_USER=postgres
-export DB_PASSWORD='your-postgres-password'
-export DB_SCHEMA=BookInventory
+mkdir -p .streamlit
 ```
 
-Do not commit passwords or other secrets to this project. If you save a
-password in a shell startup file, that file stores it as plain text in your
-user account.
+Add this to `.streamlit/secrets.toml`:
+
+```toml
+DB_PASSWORD = "your-postgres-password"
+```
+
+The secrets file is excluded from Git. Do not commit passwords or other
+secrets to this project. Environment variables remain supported and take
+precedence over the secrets file.
 
 ## Database migrations
 

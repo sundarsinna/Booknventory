@@ -34,3 +34,5 @@ Traceback (most recent call last):
     conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
 psycopg2.OperationalError: connection to server at "localhost" (::1), port 5432 failed: fe_sendauth: no password supplied
 
+2026-10-31 20:05:48,564 ERROR Database password is not configured. Set DB_PASSWORD (or PGPASSWORD) in the environment before starting Streamlit.
+2026-10-31 20:15:32,359 ERROR Database password is not configured. Set DB_PASSWORD (or PGPASSWORD) in the environment before starting Streamlit.
