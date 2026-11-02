@@ -78,7 +78,7 @@ def dashboard(get_connection, display_read_status, display_series_name):
             for column, label, value, filter_value in dashboard_links:
                 if column.button(label, key=f"dashboard_{filter_value}"):
                     st.session_state["dashboard_filter"] = filter_value
-                column.metric(label, value)
+                column.markdown(f"### {value}")
 
             selected_filter = st.session_state.get("dashboard_filter")
             allowed_filters = {

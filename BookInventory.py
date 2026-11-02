@@ -4,7 +4,7 @@ from psycopg2 import sql
 import pandas as pd
 import re
 import logging
-from datetime import date
+from datetime import date, datetime
 import db_config
 from dashboard import dashboard
 
@@ -43,6 +43,7 @@ def get_connection():
             password=DB_PASSWORD
         )
         with conn.cursor() as cur:
+            #SET search_path TO schema_name tells the database where to look for tables when you don't explicitly type the schema prefix 
             cur.execute(
                 sql.SQL("SET search_path TO {}").format(
                     sql.Identifier(db_config.DB_SCHEMA)
@@ -117,11 +118,22 @@ def display_series_name(series_name, series_emoji=None):
 # ADD BOOK
 # =====================================================
 
+def start_next_book():
+    st.session_state["book_form_version"] += 1
+    st.session_state["book_added"] = False
+
+
+def go_to_dashboard():
+    st.session_state["menu"] = "📊 Dashboard"
+    st.session_state["book_added"] = False
+
+
 def add_book():
 
     st.header("➕ Add Book")
 
-    with st.form("book_form"):
+    form_version = st.session_state.setdefault("book_form_version", 0)
+    with st.form(f"book_form_{form_version}"):
 
         series_name = st.text_input("Series Name (optional)")
         series_emoji = st.text_input(
@@ -152,6 +164,7 @@ def add_book():
         submit = st.form_submit_button("Save")
 
     if submit:
+        st.session_state["book_added"] = False
 
         series_name = series_name.strip()
         series_emoji = series_emoji.strip()
@@ -228,6 +241,7 @@ def add_book():
             st.success(
                 "Book Added Successfully"
             )
+            st.session_state["book_added"] = True
 
         except Exception as e:
 
@@ -239,6 +253,19 @@ def add_book():
 
             cur.close()
             conn.close()
+
+    if st.session_state.get("book_added"):
+        add_next_col, dashboard_col = st.columns(2)
+        add_next_col.button(
+            "➕ Add Next Book",
+            key="add_next_book",
+            on_click=start_next_book
+        )
+        dashboard_col.button(
+            "📊 Go to Dashboard",
+            key="book_added_go_to_dashboard",
+            on_click=go_to_dashboard
+        )
 
 # =====================================================
 # SEARCH BOOKS
@@ -814,9 +841,17 @@ st.set_page_config(
     layout="wide"
 )
 
+if "login_time" not in st.session_state:
+    st.session_state["login_time"] = datetime.now().astimezone()
+
+st.caption(
+    f"Login date and time: "
+    f"{st.session_state['login_time'].strftime('%Y-%m-%d %I:%M:%S %p %Z')}"
+)
+
 st.markdown(
     "<h1 style='text-align: center;'>📚 Book Inventory System</h1>",
-    unsafe_allow_html=True
+    unsafe_allow_html=True #Act as a security bypass switch
 )
 
 
@@ -830,7 +865,8 @@ menu = st.sidebar.selectbox(
         "📤 Lend Book",
         "📥 Return Book",
         "⬆️ Upload Books"
-    ]
+    ],
+    key="menu"
 )
 
 if menu == "📊 Dashboard":
