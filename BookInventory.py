@@ -276,7 +276,7 @@ def search_books():
     st.header("🔍 Search Books")
 
     search_text = st.text_input(
-        "📚 Series or Book / Story Name"
+        "📚 Series, Book / Story Name, or Description"
     )
 
     status = st.selectbox(
@@ -316,11 +316,12 @@ def search_books():
             AND (
                 LOWER(book_name) LIKE LOWER(%s)
                 OR LOWER(COALESCE(series_name, '')) LIKE LOWER(%s)
+                OR LOWER(COALESCE(description, '')) LIKE LOWER(%s)
             )
             """
 
             search_pattern = f"%{search_text}%"
-            params.extend([search_pattern, search_pattern])
+            params.extend([search_pattern, search_pattern, search_pattern])
 
         if status != "All":
 
