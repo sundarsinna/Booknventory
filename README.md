@@ -13,9 +13,9 @@ history.
   `DOG MAN` is the series and `Lord of the Fleas` is the book title.
 - Optional series emojis are saved with book records and shown in book lists.
 - Add and edit book details, including series, title, author, category, volume,
-  purchase price, reading status, and remarks.
-- Search by series name or book/story title, with an optional reading-status
-  filter.
+  purchase price, reading status, description, and remarks.
+- Search by series name, book/story title, or description, with an optional
+  reading-status filter.
 - Lend a book to a borrower and record an expected return date; return a lent
   book by its Book ID.
 - Bulk import books from CSV or Excel files.
@@ -29,6 +29,7 @@ Ratings are not currently stored or managed by this application.
 | File | Purpose |
 |---|---|
 | `BookInventory.py` | Main Streamlit entry point, navigation, database connection, book forms, search, lending, returns, and imports |
+| `api.py` | FastAPI endpoints for creating, updating, and searching books |
 | `dashboard.py` | Dashboard metrics and in-page book-detail table |
 | `db_config.py` | Reads PostgreSQL connection settings from environment variables |
 | `add_series_name.sql` | Adds the optional `series_name` column to an existing `books` table |
@@ -75,7 +76,8 @@ pip install openpyxl
 
 ## Database configuration
 
-`db_config.py` reads these environment variables:
+`db_config.py` reads database settings from environment variables first, then
+from `.streamlit/secrets.toml`, then uses the defaults shown below:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -83,27 +85,35 @@ pip install openpyxl
 | `DB_PORT` | `5432` | PostgreSQL server port |
 | `DB_NAME` | `postgres` | Database name |
 | `DB_USER` | `postgres` | Database user |
-| `DB_PASSWORD` | Not set | Password; preferred environment variable |
+| `DB_PASSWORD` | Not set | Database password |
 | `PGPASSWORD` | Not set | Password fallback if `DB_PASSWORD` is unset |
 | `DB_SCHEMA` | `BookInventory` | PostgreSQL schema used by the app |
+| `BOOK_API_URL` | `http://127.0.0.1:8002` | Base URL used by Streamlit for the book API |
 
-For local development, you can store the password in Streamlit's
-`.streamlit/secrets.toml` file at the project root so you do not need to export
-it every time:
+For local development, store your database settings in
+`.streamlit/secrets.toml` at the project root so you do not need to export them
+every time. Create the directory if needed:
 
 ```bash
 mkdir -p .streamlit
 ```
 
-Add this to `.streamlit/secrets.toml`:
+Add your actual connection values to `.streamlit/secrets.toml`:
 
 ```toml
+DB_HOST = "localhost"
+DB_PORT = "5432"
+DB_NAME = "your-database-name"
+DB_USER = "your-database-user"
 DB_PASSWORD = "your-postgres-password"
+DB_SCHEMA = "BookInventory"
+BOOK_API_URL = "http://127.0.0.1:8002"
 ```
 
 The secrets file is excluded from Git. Do not commit passwords or other
 secrets to this project. Environment variables remain supported and take
-precedence over the secrets file.
+precedence over values in the secrets file. The same file is used by both
+Streamlit and the FastAPI app.
 
 ## Database migrations
 
@@ -128,12 +138,36 @@ NaN purchase prices to zero.
 
 ## Run the application
 
-From the project directory, with the virtual environment activated and database
-environment configured:
+Start the API and Streamlit in separate terminals from the project directory,
+with the virtual environment activated and database settings configured.
+
+In the first terminal, start the API:
+
+```bash
+uvicorn api:app --reload --port 8002
+```
+
+In a second terminal, start Streamlit:
 
 ```bash
 streamlit run BookInventory.py
 ```
+
+The interactive API documentation is available at
+`http://127.0.0.1:8002/docs`.
+The book endpoints are:
+
+- `POST /books` — create a book, optionally including its description.
+- `PUT /books/{book_id}` — replace a book's editable details, including its
+  description and remarks.
+- `GET /books/{book_id}` — load a book for the Streamlit Update Book form.
+- `GET /books?search=...&status=...&limit=...` — search book title, series, or
+  description, with an optional reading-status filter. The limit defaults to
+  100 and cannot exceed 500.
+
+The Streamlit Add Book, Update Book, and Search Book pages call this API. Set
+`BOOK_API_URL` in `.streamlit/secrets.toml` if the API runs on a different host
+or port. Other Streamlit features still connect directly to PostgreSQL.
 
 ## How the application works
 
@@ -177,9 +211,9 @@ centered above the page navigation.
 
 ### Search and update
 
-Search matches a partial series name or book/story title and can be filtered by
-reading status. Update Book loads a record by Book ID, displays its current
-values, and saves edited fields back to that record.
+Search matches a partial series name, book/story title, or description and can
+be filtered by reading status. Update Book loads a record by Book ID, displays
+its current values, and saves edited fields back to that record.
 
 ### Loans
 

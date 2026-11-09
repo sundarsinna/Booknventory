@@ -1,6 +1,7 @@
 import streamlit as st
 import psycopg2
 from psycopg2 import sql
+import requests
 import pandas as pd
 import re
 import logging
@@ -9,6 +10,7 @@ import db_config
 from dashboard import dashboard
 
 DB_PASSWORD = db_config.DB_PASSWORD
+BOOK_API_URL = db_config.BOOK_API_URL.rstrip("/")
 
 # =====================================================
 # LOGGING
@@ -55,6 +57,33 @@ def get_connection():
         st.error(f"Database Connection Failed: {e}")
         logging.exception(e)
         return None
+
+
+def request_book_api(method, path, **kwargs):
+    try:
+        response = requests.request(
+            method,
+            f"{BOOK_API_URL}{path}",
+            timeout=10,
+            **kwargs
+        )
+    except requests.RequestException:
+        logging.exception("Book API request failed")
+        st.error(
+            f"Could not connect to the Book API at {BOOK_API_URL}. "
+            "Make sure the API server is running."
+        )
+        return None
+
+    if not response.ok:
+        try:
+            detail = response.json().get("detail", response.text)
+        except ValueError:
+            detail = response.text
+        st.error(f"Book API error ({response.status_code}): {detail}")
+        return None
+
+    return response.json()
 
 # =====================================================
 # VALIDATION
@@ -143,6 +172,7 @@ def add_book():
         book_name = st.text_input("📚 Book / Story Name")
         author = st.text_input("Author")
         category = st.text_input("Category")
+        description = st.text_area("Description")
         volume = st.number_input(
             "Volume",
             min_value=1,
@@ -181,78 +211,28 @@ def add_book():
                 st.error(err)
             return
 
-        conn = get_connection()
-        if not conn:
+        if len(description) > 250:
+            st.error("Description exceeds 250 characters")
             return
 
-        try:
-
-            cur = conn.cursor()
-
-            cur.execute("""
-            SELECT COUNT(*)
-            FROM books
-            WHERE LOWER(COALESCE(series_name, ''))=LOWER(%s)
-            AND LOWER(book_name)=LOWER(%s)
-            AND LOWER(author)=LOWER(%s)
-            AND volume_no=%s
-            """,
-            (
-                series_name,
-                book_name,
-                author,
-                volume
-            ))
-
-            exists = cur.fetchone()[0]
-
-            if exists > 0:
-                st.warning("Book already exists")
-                return
-
-            cur.execute("""
-            INSERT INTO books
-            (
-                series_name,
-                series_emoji,
-                book_name,
-                author,
-                category,
-                volume_no,
-                purchase_price,
-                read_status
-            )
-            VALUES
-            (%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                series_name or None,
-                series_emoji or None,
-                book_name,
-                author,
-                category,
-                volume,
-                price,
-                status
-            ))
-
-            conn.commit()
-
-            st.success(
-                "Book Added Successfully"
-            )
+        created_book = request_book_api(
+            "POST",
+            "/books",
+            json={
+                "series_name": series_name or None,
+                "series_emoji": series_emoji or None,
+                "book_name": book_name,
+                "author": author,
+                "category": category or None,
+                "volume_no": volume,
+                "purchase_price": price,
+                "read_status": status,
+                "description": description or None,
+            },
+        )
+        if created_book is not None:
+            st.success("Book Added Successfully")
             st.session_state["book_added"] = True
-
-        except Exception as e:
-
-            conn.rollback()
-            st.error(str(e))
-            logging.exception(e)
-
-        finally:
-
-            cur.close()
-            conn.close()
 
     if st.session_state.get("book_added"):
         add_next_col, dashboard_col = st.columns(2)
@@ -276,7 +256,7 @@ def search_books():
     st.header("🔍 Search Books")
 
     search_text = st.text_input(
-        "📚 Series or Book / Story Name"
+        "📚 Series, Book / Story Name, or Description"
     )
 
     status = st.selectbox(
@@ -287,58 +267,20 @@ def search_books():
         )
     )
 
-    conn = get_connection()
-    if not conn:
+    books = request_book_api(
+        "GET",
+        "/books",
+        params={
+            "search": search_text or None,
+            "status": status,
+            "limit": 500,
+        },
+    )
+    if books is None:
         return
 
-    try:
-
-        query = """
-        SELECT
-            book_id,
-            series_name,
-            series_emoji,
-            book_name,
-            author,
-            category,
-            volume_no,
-            purchase_price,
-            read_status
-        FROM books
-        WHERE 1=1
-        """
-
-        params = []
-
-        if search_text:
-
-            query += """
-            AND (
-                LOWER(book_name) LIKE LOWER(%s)
-                OR LOWER(COALESCE(series_name, '')) LIKE LOWER(%s)
-            )
-            """
-
-            search_pattern = f"%{search_text}%"
-            params.extend([search_pattern, search_pattern])
-
-        if status != "All":
-
-            query += """
-            AND read_status=%s
-            """
-
-            params.append(status)
-
-        query += " ORDER BY series_name NULLS FIRST, book_name LIMIT 500"
-
-        df = pd.read_sql(
-            query,
-            conn,
-            params=params
-        )
-
-        display_df = df.copy()
+    display_df = pd.DataFrame(books)
+    if not display_df.empty:
         display_df["series_name"] = display_df.apply(
             lambda row: display_series_name(
                 row["series_name"],
@@ -346,23 +288,24 @@ def search_books():
             ),
             axis=1
         )
-        display_df = display_df.drop(columns=["series_emoji"])
         display_df["read_status"] = display_df["read_status"].map(
             display_read_status
         )
-        st.dataframe(
-            display_df,
-            use_container_width=True
-        )
-
-    except Exception as e:
-
-        st.error(str(e))
-        logging.exception(e)
-
-    finally:
-
-        conn.close()
+    display_columns = [
+        "book_id",
+        "series_name",
+        "book_name",
+        "author",
+        "category",
+        "volume_no",
+        "purchase_price",
+        "read_status",
+        "description",
+    ]
+    st.dataframe(
+        display_df.reindex(columns=display_columns),
+        use_container_width=True
+    )
 
 # =====================================================
 # UPDATE BOOK
@@ -377,51 +320,20 @@ def update_book():
         min_value=1
     )
 
-    conn = get_connection()
-    if not conn:
+    book = request_book_api("GET", f"/books/{int(book_id)}")
+    if book is None:
         return
 
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-            SELECT
-                series_name,
-                series_emoji,
-                book_name,
-                author,
-                category,
-                volume_no,
-                purchase_price,
-                read_status,
-                remarks
-            FROM books
-            WHERE book_id=%s
-            """, (book_id,))
-            book = cur.fetchone()
-
-    except Exception as e:
-        st.error(f"Could not load book details: {e}")
-        logging.exception(e)
-        return
-
-    finally:
-        conn.close()
-
-    if not book:
-        st.info("Enter an existing Book ID to view and edit its details.")
-        return
-
-    (
-        current_series,
-        current_series_emoji,
-        current_title,
-        current_author,
-        current_category,
-        current_volume,
-        current_price,
-        current_status,
-        current_remarks,
-    ) = book
+    current_series = book["series_name"]
+    current_series_emoji = book["series_emoji"]
+    current_title = book["book_name"]
+    current_author = book["author"]
+    current_category = book["category"]
+    current_volume = book["volume_no"]
+    current_price = book["purchase_price"]
+    current_status = book["read_status"]
+    current_description = book["description"]
+    current_remarks = book["remarks"]
 
     if current_price is None or pd.isna(current_price):
         current_price = 0
@@ -454,6 +366,11 @@ def update_book():
             "Category",
             value=current_category or "",
             key=f"update_category_{int(book_id)}"
+        )
+        description = st.text_area(
+            "Description",
+            value=current_description or "",
+            key=f"update_description_{int(book_id)}"
         )
         volume = st.number_input(
             "Volume",
@@ -498,54 +415,28 @@ def update_book():
             st.error(error)
         return
 
-    conn = get_connection()
-    if not conn:
+    if len(description) > 250:
+        st.error("Description exceeds 250 characters")
         return
 
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-            UPDATE books
-            SET
-                series_name=%s,
-                series_emoji=%s,
-                book_name=%s,
-                author=%s,
-                category=%s,
-                volume_no=%s,
-                purchase_price=%s,
-                read_status=%s,
-                remarks=%s,
-                updated_at=CURRENT_TIMESTAMP
-            WHERE book_id=%s
-            """,
-            (
-                series_name or None,
-                series_emoji or None,
-                book_name,
-                author,
-                category,
-                volume,
-                price,
-                status,
-                remarks,
-                book_id
-            ))
-
-            if cur.rowcount == 0:
-                st.error("Book ID not found; no changes were saved.")
-                return
-
-        conn.commit()
+    updated_book = request_book_api(
+        "PUT",
+        f"/books/{int(book_id)}",
+        json={
+            "series_name": series_name or None,
+            "series_emoji": series_emoji or None,
+            "book_name": book_name,
+            "author": author,
+            "category": category or None,
+            "volume_no": volume,
+            "purchase_price": price,
+            "read_status": status,
+            "description": description or None,
+            "remarks": remarks or None,
+        },
+    )
+    if updated_book is not None:
         st.success("Book details updated successfully.")
-
-    except Exception as e:
-        conn.rollback()
-        st.error(f"Could not update book details: {e}")
-        logging.exception(e)
-
-    finally:
-        conn.close()
 
 # =====================================================
 # LEND BOOK
